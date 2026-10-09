@@ -1,26 +1,9 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS citext;
 
-DO $$
-BEGIN
-  CREATE TYPE account_type AS ENUM ('person', 'ong', 'vet', 'admin');
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
-
-DO $$
-BEGIN
-  CREATE TYPE post_type AS ENUM ('adoption', 'lost', 'found', 'emergency', 'campaign', 'post');
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
-
-DO $$
-BEGIN
-  CREATE TYPE moderation_status AS ENUM ('queued', 'approved', 'rejected', 'needs_review');
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
+CREATE TYPE account_type AS ENUM ('person', 'ong', 'vet', 'admin');
+CREATE TYPE post_type AS ENUM ('adoption', 'lost', 'found', 'emergency', 'campaign', 'post');
+CREATE TYPE moderation_status AS ENUM ('queued', 'approved', 'rejected', 'needs_review');
 
 CREATE TABLE users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
