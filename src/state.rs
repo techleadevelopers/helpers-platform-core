@@ -40,7 +40,6 @@ impl AppState {
             .min_connections(config.database_min_connections)
             .acquire_timeout(Duration::from_secs(5))
             .connect_lazy(&config.database_url)?;
-        adopt_legacy_migration_history(&db).await?;
         MIGRATOR.run(&db).await?;
         ensure_runtime_schema(&db, config.postgis_enabled).await?;
 
@@ -81,76 +80,6 @@ impl AppState {
         }
         Ok(state)
     }
-}
-
-/// Adopts databases created before SQLx's migration ledger was introduced.
-///
-/// Older preview deployments created the schema directly. Replaying migration
-/// `0001_init.sql` on those databases is not safe: the schema already exists,
-/// but `_sqlx_migrations` is empty. We record the embedded migrations exactly
-/// once, using SQLx's own version, description, and checksum values. Fresh
-/// databases have no `users` table and continue through the normal migrator.
-async fn adopt_legacy_migration_history(db: &PgPool) -> anyhow::Result<()> {
-    let legacy_schema_exists: bool = sqlx::query_scalar(
-        "SELECT to_regclass('public.users') IS NOT NULL",
-    )
-    .fetch_one(db)
-    .await?;
-
-    if !legacy_schema_exists {
-        return Ok(());
-    }
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS _sqlx_migrations (
-          version BIGINT PRIMARY KEY,
-          description TEXT NOT NULL,
-          installed_on TIMESTAMPTZ NOT NULL DEFAULT now(),
-          success BOOLEAN NOT NULL,
-          checksum BYTEA NOT NULL,
-          execution_time BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(db)
-    .await?;
-
-    let mut transaction = db.begin().await?;
-    // API and worker containers can start at the same time during a deploy.
-    // Serialize this one-time adoption so the ledger is always all-or-nothing.
-    sqlx::query("SELECT pg_advisory_xact_lock(8942051)")
-        .execute(&mut *transaction)
-        .await?;
-    let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
-        .fetch_one(&mut *transaction)
-        .await?;
-    if migration_count > 0 {
-        transaction.commit().await?;
-        return Ok(());
-    }
-
-    for migration in MIGRATOR.iter() {
-        sqlx::query(
-            r#"
-            INSERT INTO _sqlx_migrations (
-              version, description, success, checksum, execution_time
-            ) VALUES ($1, $2, true, $3, 0)
-            "#,
-        )
-        .bind(migration.version)
-        .bind(migration.description.as_ref())
-        .bind(migration.checksum.as_ref())
-        .execute(&mut *transaction)
-        .await?;
-    }
-    transaction.commit().await?;
-
-    tracing::warn!(
-        migration_count = MIGRATOR.iter().count(),
-        "adopted legacy schema into SQLx migration history"
-    );
-    Ok(())
 }
 
 async fn ensure_runtime_schema(db: &PgPool, postgis_enabled: bool) -> anyhow::Result<()> {

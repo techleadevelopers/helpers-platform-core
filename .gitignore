@@ -10,6 +10,11 @@
 # Python auxiliary workers remain local until the AI service is enabled
 /python-workers/
 
+# Binários de seed local (contêm credenciais e tokens de teste)
+src/bin/seed_cloud_profiles.rs
+src/bin/seed_rescue_fanout_test.rs
+src/bin/reset_rescue_fanout_test.rs
+
 # Python caches and virtualenvs if created outside python-workers
 __pycache__/
 *.py[cod]
